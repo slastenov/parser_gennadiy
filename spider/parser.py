@@ -5,25 +5,30 @@ from bs4 import BeautifulSoup
 
 css_files = set()
 js_files = set()
+image_files = set()
 
 
 def parse_website(url: str, nesting: int = 1) -> set:
     links = {url, }
     get_all_pages(url, 0, links, nesting)
+    save_content(css_files)
+    save_content(js_files)
+    save_content(image_files)
     return links
 
 
 def get_all_pages(url: str, level: int, links: set, nesting: int) -> None:
     domain = parse.urlparse(url).netloc
     content, content_type = get_content(url)
-    # save_file(href_path_to_directory(url), content)
+    save_file(url, content, 'html')
     print(url)
     if level >= nesting:
         return
     if 'text/html' in content_type:
         bs = BeautifulSoup(content, "html.parser")
-        get_scripts(bs, domain)
-        get_css(bs, domain)
+        get_scripts(bs, url)
+        get_css(bs, url)
+        get_images(bs, url)
         for link_tag in bs.findAll("a"):
             href = link_tag.attrs.get("href")
             if href == "" or href is None:
@@ -43,11 +48,21 @@ def make_clean_href(url: str, href: str) -> str:
     return href.scheme + "://" + href.netloc + href.path
 
 
-def save_file(path, content):
+def save_file(url, content, content_type=None):
+    if content_type == 'html' and url[-4:] != 'html':
+        path = href_path_to_directory(url) + '.html'
+    else:
+        path = href_path_to_directory(url)
     if os.path.dirname(path) and not os.path.exists(os.path.dirname(path)):
         os.makedirs(os.path.dirname(path))
     with open(path, mode='wb') as file:
         file.write(content)
+
+
+def save_content(files: set or list):
+    for file in files:
+        content = get_content(file)[0]
+        save_file(file, content)
 
 
 def get_content(url: str):
@@ -68,19 +83,31 @@ def href_path_to_directory(url: str):
     return dir_path
 
 
-def get_scripts(bs: BeautifulSoup, domain: str):
+def get_scripts(bs: BeautifulSoup, url: str):
     for script in bs.find_all("script"):
         if script.attrs.get("src"):
-            script_url = parse.urljoin(domain, script.attrs.get("src"))
-            js_files.add(script_url)
+            if not parse.urlparse(script.attrs["src"]).netloc:
+                script_url = make_clean_href(url, script.attrs.get("src"))
+                js_files.add(script_url)
 
 
-def get_css(bs: BeautifulSoup, domain: str):
+def get_css(bs: BeautifulSoup, url: str):
     for css in bs.find_all("link"):
         if css.attrs.get("href"):
-            css_url = parse.urljoin(domain, css.attrs.get("href"))
-            css_files.add(css_url)
+            if not parse.urlparse(css.attrs["href"]).netloc:
+                css_url = make_clean_href(url, css.attrs.get("href"))
+                css_files.add(css_url)
 
 
-
-
+def get_images(bs: BeautifulSoup, url: str):
+    for image in bs.find_all("img"):
+        image_url = image.attrs.get("src")
+        if not image_url:
+            continue
+        image_url = parse.urljoin(url, image_url)
+        try:
+            pos = image_url.index("?")
+            image_url = image_url[:pos]
+        except ValueError:
+            pass
+        image_files.add(image_url)
